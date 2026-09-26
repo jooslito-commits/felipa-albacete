@@ -1,0 +1,17 @@
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    environment:
+      PORT: 3000
+      DATA_DIR: /data
+      APP_TIMEZONE: Europe/Madrid
+      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY}
+      VAPID_SUBJECT: ${VAPID_SUBJECT}
+    ports:
+      - "3000:3000"
+    volumes:
+      - felipa-data:/data
+volumes:
+  felipa-data:

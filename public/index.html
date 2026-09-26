@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Felipa ⇄ Albacete</title>
+<meta name="description" content="Coche compartido entre vecinos de La Felipa y Albacete.">
+<meta name="theme-color" content="#1D4F91">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icons/icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Felipa-Albacete">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Condensed:wght@500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<div class="wrap">
+  <header class="sign">
+    <h1>La Felipa<span aria-hidden="true">⇄</span>Albacete</h1>
+    <p>Coches de vecinos con sitio libre. Mira quién va, apúntate y espera en la salida.</p>
+  </header>
+
+  <div class="bar">
+    <button class="btn ghost" id="installBtn" hidden>Instalar la app</button>
+    <button class="btn ghost" id="notifBtn" hidden>Activar avisos</button>
+  </div>
+
+  <section class="panel ios" id="iosHelp" hidden>
+    <h2>Instálala en tu iPhone para recibir avisos</h2>
+    <ol>
+      <li>Abre esta página en Safari.</li>
+      <li>Pulsa el botón de compartir (el cuadrado con la flecha hacia arriba).</li>
+      <li>Elige «Añadir a pantalla de inicio».</li>
+      <li>Abre la app desde el nuevo icono y pulsa «Activar avisos».</li>
+    </ol>
+    <p>Hace falta iOS 16.4 o posterior.</p>
+  </section>
+
+  <section class="panel" id="notifPanel" hidden>
+    <h2>Avisos</h2>
+    <p id="notifText">Te avisaremos cuando alguien publique un viaje.</p>
+    <div class="checks">
+      <label><input type="checkbox" id="nIda" checked> Viajes a Albacete</label>
+      <label><input type="checkbox" id="nVuelta" checked> Viajes a La Felipa</label>
+    </div>
+    <button class="btn ghost" id="notifOff">Desactivar avisos</button>
+  </section>
+
+  <div class="dirs" role="group" aria-label="Sentido del viaje">
+    <button class="dir" data-dir="ida" aria-pressed="true"><b>A Albacete</b><small>Esperas en la salida de La Felipa</small><span class="n"></span></button>
+    <button class="dir" data-dir="vuelta" aria-pressed="false"><b>A La Felipa</b><small>Esperas en la salida de Albacete</small><span class="n"></span></button>
+  </div>
+
+  <p id="state" class="status" role="status">Cargando viajes…</p>
+  <main id="list" aria-live="polite"></main>
+
+  <section class="coin" aria-label="Aportación">
+    <div class="c" aria-hidden="true">2 €</div>
+    <p><strong>2 € por trayecto</strong> para quien conduce, como ayuda voluntaria con la gasolina. Se entrega en mano al subir. Es compartir gastos, no un servicio de pago.</p>
+  </section>
+
+  <section class="how">
+    <h2>Cómo funciona</h2>
+    <ol>
+      <li>Si vas en coche, pulsa «Ofrezco mi coche» e indica día, hora y plazas libres.</li>
+      <li>Si necesitas ir, busca un viaje y pulsa «Me apunto».</li>
+      <li>Estate en el punto de recogida unos minutos antes de la hora.</li>
+    </ol>
+  </section>
+</div>
+
+<button class="fab" id="offer">Ofrezco mi coche</button>
+
+<dialog id="dlg" aria-labelledby="dlgTitle">
+  <form class="form" id="form" method="dialog">
+    <h2 id="dlgTitle">Ofrezco mi coche</h2>
+    <label for="fDir">Sentido</label>
+    <select id="fDir">
+      <option value="ida">De La Felipa a Albacete</option>
+      <option value="vuelta">De Albacete a La Felipa</option>
+    </select>
+    <div class="row">
+      <div><label for="fDate">Día</label><input id="fDate" type="date" required></div>
+      <div><label for="fTime">Hora de salida</label><input id="fTime" type="time" required></div>
+    </div>
+    <div class="row">
+      <div><label for="fName">Tu nombre</label><input id="fName" maxlength="40" required autocomplete="given-name"></div>
+      <div><label for="fSeats">Plazas libres</label>
+        <select id="fSeats"><option>1</option><option>2</option><option selected>3</option><option>4</option></select></div>
+    </div>
+    <label for="fPlace">Punto de recogida</label>
+    <input id="fPlace" maxlength="80">
+    <label for="fNote">Nota <span class="hint">(opcional; la ven todos, no pongas tu teléfono)</span></label>
+    <textarea id="fNote" rows="2" maxlength="200" placeholder="Ej.: coche gris, vuelvo sobre las 14:00"></textarea>
+    <p id="fStatus" class="status" role="status"></p>
+    <div class="formact">
+      <button type="button" class="btn ghost" id="cancel">Cancelar</button>
+      <button type="submit" class="btn go" id="save">Publicar viaje</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="joinDlg" aria-labelledby="joinTitle">
+  <form class="form" id="joinForm" method="dialog">
+    <h2 id="joinTitle">Me apunto</h2>
+    <label for="jName">Tu nombre</label>
+    <input id="jName" maxlength="40" required autocomplete="given-name">
+    <p class="status">Recuerda llevar 2 € para quien conduce.</p>
+    <div class="formact">
+      <button type="button" class="btn ghost" id="jCancel">Cancelar</button>
+      <button type="submit" class="btn go">Apuntarme</button>
+    </div>
+  </form>
+</dialog>
+
+<div class="toast" id="toast" role="status"></div>
+<script src="/app.js" defer></script>
+</body>
+</html>
