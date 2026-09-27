@@ -13,7 +13,7 @@ App web para que los vecinos de La Felipa compartan coche para ir y volver de Al
   - Quien conduce recibe un aviso cuando alguien se apunta o se desapunta.
   - Los pasajeros reciben un aviso si se cancela el viaje.
 - Se puede **instalar** en el móvil y abrir sin cobertura (verá la última copia guardada).
-- Los viajes pasados desaparecen solos y cada noche se borran los de días anteriores.
+- Los viajes pasados desaparecen solos y los de días anteriores se borran automáticamente.
 
 **Sin cuentas ni contraseñas.** Cada móvil recibe un identificador anónimo al abrir la app por primera vez. Eso permite que solo quien publica un viaje pueda cancelarlo. Solo se guarda el nombre que cada uno escribe. No se piden teléfonos ni correos.
 
@@ -25,64 +25,58 @@ App web para que los vecinos de La Felipa compartan coche para ir y volver de Al
 ## Requisitos técnicos
 
 - Node.js 22 (probado con 22.22).
-- Las dependencias están fijadas en `package.json` y `package-lock.json`: Express 5.2.1, web-push 3.6.7 y better-sqlite3 13.0.3.
-- Los datos se guardan en un archivo SQLite dentro de la carpeta indicada en `DATA_DIR`. No necesita otra base de datos.
-- **Es obligatorio usar HTTPS** en producción: sin él, los móviles no permiten instalar la app ni recibir avisos.
+- Dependencias fijadas en `package.json` y `package-lock.json`: Express 5.2.1, web-push 3.6.7 y @libsql/client 0.18.0.
+- Base de datos: **Turso** (SQLite en la nube, plan gratuito) en producción. En tu ordenador, si no configuras Turso, se usa un archivo local en `DATA_DIR`.
+- **HTTPS obligatorio** en producción: sin él, los móviles no permiten instalar la app ni recibir avisos. Vercel lo incluye.
 
 ## Configuración
 
-Todas las opciones se pasan como variables de entorno. En `.env.example` hay una plantilla.
+Todas las opciones se pasan como variables de entorno (plantilla en `.env.example`).
 
-| Variable | Para qué sirve | Ejemplo |
+| Variable | Para qué sirve | ¿Obligatoria? |
 |---|---|---|
-| `PORT` | Puerto del servidor | `3000` |
-| `DATA_DIR` | Carpeta donde se guarda la base de datos | `/data` |
-| `APP_TIMEZONE` | Zona horaria de los viajes | `Europe/Madrid` |
-| `VAPID_PUBLIC_KEY` | Clave pública de los avisos | la genera `npm run vapid` |
-| `VAPID_PRIVATE_KEY` | Clave privada de los avisos (**secreta**) | la genera `npm run vapid` |
-| `VAPID_SUBJECT` | Correo de contacto para los servicios de avisos | `mailto:tu-correo@ejemplo.com` |
+| `TURSO_DATABASE_URL` | Dirección de la base de datos Turso (empieza por `libsql://`) | Sí, en Vercel |
+| `TURSO_AUTH_TOKEN` | Token de acceso a Turso (**secreto**) | Sí, en Vercel |
+| `VAPID_SUBJECT` | Tu correo de contacto para los servicios de avisos, con formato `mailto:tu-correo@ejemplo.com` | Sí, para los avisos |
+| `APP_TIMEZONE` | Zona horaria de los viajes | No (`Europe/Madrid`) |
+| `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` | Claves de los avisos | No |
+| `PORT`, `DATA_DIR` | Solo para servidor propio o pruebas locales | No |
 
-Las claves de los avisos se generan **una sola vez** y se guardan en el gestor de variables o secretos del servidor:
+**Claves de los avisos:** no hace falta crearlas. La primera vez, el servidor las genera y las guarda en la propia base de datos, y las reutiliza siempre. Si se borrara la base de datos, los vecinos tendrían que volver a pulsar «Activar avisos». Si prefieres gestionarlas tú, genera un par con `npm run vapid` y guárdalas en las variables del servidor, nunca en GitHub.
 
-```bash
-npm install
-npm run vapid
-```
+## Despliegue gratuito en Vercel + Turso (recomendado)
 
-No se deben subir a GitHub ni compartir por chat. Si se cambian más adelante, todos los vecinos tendrán que volver a pulsar «Activar avisos». Si faltan las claves, la app funciona igual pero sin avisos.
+1. **GitHub:** sube el proyecto a un repositorio. El `.gitignore` ya excluye `.env`, las bases de datos locales y `node_modules`.
+2. **Turso:** en [turso.tech](https://turso.tech), crea una cuenta y una base de datos (por ejemplo, `felipa-albacete`, en una región de Europa). Copia su **URL** (`libsql://...`) y crea un **token** de acceso. Las tablas se crean solas al arrancar la app.
+3. **Vercel:** en [vercel.com](https://vercel.com), entra con GitHub, pulsa **Add New → Project** e importa el repositorio. Vercel detecta Express solo; no cambies los ajustes de construcción.
+4. Antes de pulsar **Deploy**, abre **Environment Variables** y añade `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN` y `VAPID_SUBJECT`. Si ya lo habías desplegado, añádelas en **Settings → Environment Variables** y vuelve a desplegar (**Deployments → ⋯ → Redeploy**).
+5. Comprueba que `https://tu-proyecto.vercel.app/healthz` responde `{"ok":true,"push":true}`.
+
+En Vercel, la app funciona como una única función (`server.js` exporta la app de Express) y los archivos de `public/` se sirven desde su red de distribución. `vercel.json` solo ajusta la caché del service worker y del manifiesto.
 
 ## Probarlo en tu ordenador
 
 ```bash
 npm install
-cp .env.example .env      # rellena las claves VAPID si quieres probar avisos
+cp .env.example .env      # pon tu correo en VAPID_SUBJECT si quieres probar avisos
 node --env-file=.env server.js
 ```
 
-Abre `http://localhost:3000`. En `localhost` los navegadores permiten probar los avisos sin HTTPS.
+Abre `http://localhost:3000`. Sin Turso configurado, los datos se guardan en `data/felipa.db`. En `localhost` los navegadores permiten probar los avisos sin HTTPS.
 
-Para ejecutar las pruebas automáticas:
+Pruebas automáticas:
 
 ```bash
 npm test
 ```
 
-## Despliegue con Docker (por ejemplo, en la plataforma Electropolis/Dokploy)
+## Otras formas de desplegarlo
 
-El proyecto incluye `Dockerfile` y `docker-compose.yml`.
-
-1. Sube el proyecto a un repositorio de GitHub. El `.gitignore` ya excluye `.env`, la base de datos y `node_modules`.
-2. Crea la aplicación en la plataforma a partir del repositorio, usando el `Dockerfile` o el `docker-compose.yml`.
-3. Añade las variables `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` y `VAPID_SUBJECT` en el apartado de variables o secretos de la plataforma.
-4. Monta un **volumen persistente en `/data`**. Si no, los viajes se pierden en cada actualización.
-5. Asigna un dominio con **HTTPS** (por ejemplo, `felipa.tudominio.es`) apuntando al puerto 3000.
-6. Comprueba que `https://tu-dominio/healthz` responde `{"ok":true}`.
-
-Sin Docker basta con `npm ci --omit=dev` y `node server.js`, con las variables de entorno configuradas.
+El proyecto también funciona en cualquier servidor con Node.js 22 (`npm ci --omit=dev` y `node server.js`) o con Docker (`Dockerfile` y `docker-compose.yml`). Puede usar Turso o, si no se configura, un archivo local; en ese caso hace falta un **volumen persistente en `/data`**. El arranque del contenedor (`docker-entrypoint.sh`) ajusta solo los permisos del disco.
 
 ## Copias de seguridad
 
-Todos los datos están en `DATA_DIR/felipa.db` (junto a los archivos `felipa.db-wal` y `felipa.db-shm`). Para hacer una copia, basta con guardar esa carpeta. Como los viajes caducan cada día, lo único que realmente se perdería son las suscripciones a los avisos: los vecinos tendrían que volver a activarlos.
+En Turso, el plan gratuito incluye restauración de hasta un día atrás. Como los viajes caducan cada día, lo importante que se guarda a largo plazo son las suscripciones a los avisos y sus claves. En instalación local, basta con copiar la carpeta `DATA_DIR`.
 
 ## Publicar una versión nueva
 
@@ -92,13 +86,15 @@ Si cambias los archivos de `public/`, sube el número de `CACHE` en `public/sw.j
 
 ```
 server.js                 Servidor: API, base de datos y envío de avisos
+vercel.json               Ajustes de caché para Vercel
 public/index.html         Página de la app
 public/app.js             Lógica en el móvil (viajes, instalación, avisos)
 public/styles.css         Estilos (modo claro y oscuro)
 public/sw.js              Service worker: instalación, uso sin cobertura y avisos
 public/manifest.webmanifest  Nombre e iconos de la app instalada
 public/icons/             Iconos
-scripts/generate-vapid.js Genera las claves de los avisos
+scripts/generate-vapid.js Genera claves de avisos (opcional)
+docker-entrypoint.sh      Arranque del contenedor (permisos del disco)
 test/api.test.js          Pruebas automáticas
 ```
 

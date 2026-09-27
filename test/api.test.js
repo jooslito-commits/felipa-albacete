@@ -9,7 +9,7 @@ process.env.DATA_DIR = tmp;
 const { app, db } = await import("../server.js");
 let server, base;
 before(() => new Promise(r => { server = app.listen(0, () => { base = `http://127.0.0.1:${server.address().port}`; r(); }); }));
-after(() => { server.close(); db.close(); fs.rmSync(tmp, { recursive: true, force: true }); });
+after(() => { server.close(); db.close?.(); fs.rmSync(tmp, { recursive: true, force: true }); });
 
 const dev = n => ({ "X-Device-Id": `dispositivo-prueba-${n}`, "X-Device-Secret": `secreto-de-prueba-numero-${n}` });
 const call = async (method, url, headers, body) => {
@@ -59,5 +59,16 @@ test("sirve la app instalable", async () => {
     assert.equal((await fetch(base + f)).status, 200, f);
   }
   const cfg = await (await fetch(base + "/api/config")).json();
-  assert.equal(cfg.pushEnabled, false);
+  assert.equal(cfg.pushEnabled, false, "sin VAPID_SUBJECT no hay avisos");
+  assert.ok(cfg.vapidPublicKey.length > 40, "clave pública generada");
+  const saved = await db.execute("SELECT value FROM settings WHERE key = 'vapid'");
+  assert.equal(JSON.parse(saved.rows[0].value).publicKey, cfg.vapidPublicKey, "se guarda en la base de datos para reutilizarla");
+});
+
+test("dos personas a la vez por la última plaza: solo entra una", async () => {
+  const c = await call("POST", "/api/trips", dev("d"), { dir: "vuelta", date: tomorrow, time: "19:00", seats: 1, driver: "Mari" });
+  const [r1, r2, r3] = await Promise.all(["e", "f", "g"].map(n => call("POST", `/api/trips/${c.body.id}/join`, dev(n), { name: n })));
+  assert.deepEqual([r1.status, r2.status, r3.status].sort(), [200, 409, 409]);
+  const l = await call("GET", "/api/trips", dev("d"));
+  assert.equal(l.body.trips.find(t => t.id === c.body.id).riders.length, 1);
 });
