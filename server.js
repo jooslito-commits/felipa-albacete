@@ -1,7 +1,6 @@
 // Servidor de "La Felipa ⇄ Albacete": guarda viajes y envía notificaciones push.
 // Funciona igual en Vercel (función sin servidor + base de datos Turso) y en un servidor normal.
 import express from "express";
-import { createClient } from "@libsql/client";
 import webpush from "web-push";
 import crypto from "node:crypto";
 import fs from "node:fs";
@@ -16,17 +15,45 @@ const TZ = process.env.APP_TIMEZONE || "Europe/Madrid";
 const VAPID_SUBJECT = process.env.VAPID_SUBJECT || "";
 
 // Base de datos: Turso si hay TURSO_DATABASE_URL; si no, un archivo local (para pruebas o servidor propio).
-function dbUrl() {
-  if (process.env.TURSO_DATABASE_URL) return process.env.TURSO_DATABASE_URL;
-  if (process.env.VERCEL) throw new Error("Falta la variable TURSO_DATABASE_URL en Vercel.");
-  const dir = process.env.DATA_DIR || path.join(__dirname, "data");
-  fs.mkdirSync(dir, { recursive: true });
-  return "file:" + path.join(dir, "felipa.db");
+// Con Turso se usa el cliente "web" (sin piezas nativas), que es el que funciona en Vercel.
+class ConfigError extends Error {}
+let dbClient = null;
+async function getDb() {
+  if (dbClient) return dbClient;
+  const url = (process.env.TURSO_DATABASE_URL || "").trim();
+  const authToken = (process.env.TURSO_AUTH_TOKEN || "").trim() || undefined;
+  if (url) {
+    if (!/^(libsql|https|wss?):\/\//.test(url)) throw new ConfigError("TURSO_DATABASE_URL no es válida: debe empezar por libsql://");
+    if (!authToken) throw new ConfigError("Falta la variable TURSO_AUTH_TOKEN.");
+    const { createClient } = await import("@libsql/client/web");
+    dbClient = createClient({ url, authToken });
+  } else {
+    if (process.env.VERCEL) throw new ConfigError("Falta la variable TURSO_DATABASE_URL.");
+    const dir = process.env.DATA_DIR || path.join(__dirname, "data");
+    fs.mkdirSync(dir, { recursive: true });
+    const { createClient } = await import("@libsql/client");
+    dbClient = createClient({ url: "file:" + path.join(dir, "felipa.db") });
+  }
+  return dbClient;
 }
-const db = createClient({ url: dbUrl(), authToken: process.env.TURSO_AUTH_TOKEN || undefined });
+const db = {
+  execute: async (...a) => (await getDb()).execute(...a),
+  executeMultiple: async (...a) => (await getDb()).executeMultiple(...a),
+  batch: async (...a) => (await getDb()).batch(...a),
+  close: () => dbClient?.close(),
+};
 const q = (sql, ...args) => db.execute({ sql, args });
 const one = async (sql, ...args) => (await q(sql, ...args)).rows[0];
 const all = async (sql, ...args) => (await q(sql, ...args)).rows;
+
+// Traduce errores de conexión a un mensaje comprensible (sin mostrar secretos).
+function explain(err) {
+  if (err instanceof ConfigError) return err.message + " Revísala en Vercel → Settings → Environment Variables y vuelve a desplegar.";
+  const m = String(err?.message || err);
+  if (/401|unauthori|token|jwt/i.test(m)) return "Turso rechaza el token (TURSO_AUTH_TOKEN). Crea uno nuevo, cámbialo en Vercel y vuelve a desplegar.";
+  if (/404|not found|ENOTFOUND|getaddrinfo/i.test(m)) return "No se encuentra la base de datos de Turso. Revisa TURSO_DATABASE_URL.";
+  return "No se puede conectar con la base de datos: " + m.slice(0, 200);
+}
 
 const sha = s => crypto.createHash("sha256").update(s).digest("hex");
 const newId = () => crypto.randomBytes(12).toString("base64url");
@@ -314,11 +341,16 @@ app.delete("/api/subscription", rateLimit, auth, wrap(async (req, res) => {
   res.json({ ok: true });
 }));
 
-app.get("/healthz", wrap(async (req, res) => {
-  await ensureReady();
-  await q("SELECT 1");
-  res.json({ ok: true, push: push.enabled });
-}));
+app.get("/healthz", async (req, res) => {
+  try {
+    await ensureReady();
+    await q("SELECT 1");
+    res.json({ ok: true, push: push.enabled });
+  } catch (err) {
+    console.error("[healthz]", err);
+    res.status(500).json({ ok: false, error: explain(err) });
+  }
+});
 
 // Archivos de la app (en Vercel los sirve directamente su CDN desde public/).
 app.use(express.static(path.join(__dirname, "public"), {
@@ -329,7 +361,7 @@ app.use(express.static(path.join(__dirname, "public"), {
 
 app.use((err, req, res, next) => {
   console.error(err);
-  res.status(500).json({ error: "Error interno. Inténtalo de nuevo en un momento." });
+  res.status(500).json({ error: "Error interno. Inténtalo de nuevo en un momento.", detail: explain(err) });
 });
 
 export default app;
