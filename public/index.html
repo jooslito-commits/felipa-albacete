@@ -60,14 +60,14 @@
 
   <section class="coin" aria-label="Aportación">
     <div class="c" aria-hidden="true">2 €</div>
-    <p><strong>2 € por trayecto</strong> para quien conduce, como ayuda voluntaria con la gasolina. Se entrega en mano al subir. Es compartir gastos, no un servicio de pago.</p>
+    <p><strong>2 € por reserva y trayecto</strong> para quien conduce, sean las plazas que sean. Es un pago simbólico para ayudar con la gasolina. Se entrega en mano al subir. Es compartir gastos, no un servicio de pago.</p>
   </section>
 
   <section class="how">
     <h2>Cómo funciona</h2>
     <ol>
       <li>Si vas en coche, pulsa «Ofrezco mi coche» e indica día, hora y plazas libres.</li>
-      <li>Si necesitas ir, busca un viaje y pulsa «Me apunto».</li>
+      <li>Si necesitas ir, busca un viaje, pulsa «Me apunto» y elige cuántas plazas necesitas.</li>
       <li>Estate en el punto de recogida unos minutos antes de la hora.</li>
     </ol>
   </section>
@@ -109,7 +109,11 @@
     <h2 id="joinTitle">Me apunto</h2>
     <label for="jName">Tu nombre</label>
     <input id="jName" maxlength="40" required autocomplete="given-name">
-    <p class="status">Recuerda llevar 2 € para quien conduce.</p>
+    <div id="jPlacesRow">
+      <label for="jPlaces">¿Cuántas plazas necesitas? <span class="hint">(contándote a ti)</span></label>
+      <select id="jPlaces"><option value="1">1 plaza</option></select>
+    </div>
+    <p class="status" id="jCost">Recuerda llevar 2 € para quien conduce.</p>
     <div class="formact">
       <button type="button" class="btn ghost" id="jCancel">Cancelar</button>
       <button type="submit" class="btn go">Apuntarme</button>
