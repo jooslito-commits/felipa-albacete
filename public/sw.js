@@ -1,5 +1,5 @@
 // Service worker: permite instalar la app, abrirla sin cobertura y recibir avisos.
-const CACHE = "felipa-v3"; // Cambia este número al publicar una versión nueva.
+const CACHE = "felipa-v5"; // Cambia este número al publicar una versión nueva.
 const SHELL = ["/", "/index.html", "/styles.css", "/app.js", "/manifest.webmanifest", "/icons/icon-192.png", "/logo-deposito.jpg"];
 
 self.addEventListener("install", e => {

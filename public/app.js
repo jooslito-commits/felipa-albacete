@@ -3,8 +3,6 @@
   const PLACES = { ida: "Salida de La Felipa", vuelta: "Salida de Albacete" };
   const $ = s => document.querySelector(s);
   const list = $("#list"), stateEl = $("#state");
-  const FEE = 1.5; // aportación por reserva y trayecto
-  const eur = n => n.toLocaleString("es-ES", { minimumFractionDigits: n % 1 ? 1 : 0, maximumFractionDigits: 2 }) + " €";
   let requests = [], forRequest = null;
   let trips = [], loaded = false, userPicked = false, pendingJoin = null, config = { pushEnabled: false };
   let dir = new URLSearchParams(location.search).get("dir") === "vuelta" ? "vuelta" : "ida";
@@ -91,7 +89,7 @@
         : `<span class="tag full">Completo</span>`;
       let act;
       if (t.mine) act = `<span class="hint">Es tu coche: los vecinos verán aquí el botón «Me apunto».</span><button class="btn warn" data-del="${esc(t.id)}">Cancelar mi viaje</button>`;
-      else if (t.joined) act = `<span class="hint">Has reservado ${t.myPlaces === 1 ? "1 plaza" : t.myPlaces + " plazas"} · ${eur(FEE)} para quien conduce.</span><button class="btn ghost" data-leave="${esc(t.id)}">Ya no voy</button>`;
+      else if (t.joined) act = `<span class="hint">Has reservado ${t.myPlaces === 1 ? "1 plaza" : t.myPlaces + " plazas"}.</span><button class="btn ghost" data-leave="${esc(t.id)}">Ya no voy</button>`;
       else act = `<button class="btn go" data-join="${esc(t.id)}" ${free ? "" : "disabled"}>Me apunto</button>`;
       html += `<article class="trip">
         <div class="time cond">${esc(t.time)}</div>
@@ -99,7 +97,7 @@
         <div class="where">Recogida: <strong>${esc(t.place || PLACES[t.dir])}</strong></div>
         <div class="seats">${seats} ${tag}</div>
         ${t.note ? `<p class="note">${esc(t.note)}</p>` : ""}
-        ${taken ? `<div class="riders">Van: ${t.riders.map(r => esc(r.name) + (r.places > 1 ? ` (${r.places} plazas)` : "")).join(", ")}${t.mine ? ` · te darán ${eur(t.riders.length * FEE)}` : ""}</div>` : ""}
+        ${taken ? `<div class="riders">Van: ${t.riders.map(r => esc(r.name) + (r.places > 1 ? ` (${r.places} plazas)` : "")).join(", ")}</div>` : ""}
         <div class="actions">${act}</div>
       </article>`;
     }
@@ -173,8 +171,7 @@
   });
 
   function updateJoinCost() {
-    const n = Number($("#jPlaces").value || 1);
-    $("#jCost").textContent = n === 1 ? `Recuerda llevar ${eur(FEE)} para quien conduce.` : `Recuerda llevar ${eur(FEE)} para quien conduce (en total por las ${n} plazas).`;
+    $("#jCost").textContent = "Si quieres, puedes hacer una donación voluntaria a quien conduce para ayudar con la gasolina.";
   }
   $("#jPlaces").addEventListener("change", updateJoinCost);
 
@@ -186,7 +183,7 @@
     $("#joinDlg").close();
     try {
       await api("POST", `/api/trips/${encodeURIComponent(pendingJoin)}/join`, { name, places });
-      toast(places === 1 ? `¡Apuntado! Lleva ${eur(FEE)} para quien conduce` : `¡${places} plazas reservadas! Lleva ${eur(FEE)} para quien conduce`);
+      toast(places === 1 ? "¡Apuntado! Buen viaje" : `¡${places} plazas reservadas! Buen viaje`);
     } catch (err) { toast(err.message); }
     pendingJoin = null; load();
   });
@@ -288,27 +285,80 @@
   async function saveSub(sub) {
     await api("POST", "/api/subscription", { subscription: sub.toJSON(), ida: $("#nIda").checked, vuelta: $("#nVuelta").checked });
   }
+  const ua = navigator.userAgent;
+  const isAndroid = /android/i.test(ua);
+  const isMiBrowser = /MiuiBrowser|XiaoMi\//i.test(ua);
+
+  function showBlockedHelp(show = true) {
+    const help = $("#blockedHelp");
+    help.hidden = !show;
+    if (!show) return;
+    $("#bhBrowser").hidden = !isMiBrowser;
+    $("#bhAndroid").hidden = !isAndroid || isMiBrowser;
+    $("#bhIOS").hidden = !isIOS;
+    $("#bhDesktop").hidden = isAndroid || isIOS;
+    help.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  async function subscribe() {
+    let sub = await currentSub();
+    if (!sub) sub = await swReg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlB64ToUint8Array(config.vapidPublicKey) });
+    await saveSub(sub);
+  }
+
   async function refreshNotifUI() {
+    const btn = $("#notifBtn");
     const sub = await currentSub().catch(() => null);
     const on = Boolean(sub) && Notification.permission === "granted";
     $("#notifPanel").hidden = !on;
-    $("#notifBtn").hidden = on || !config.pushEnabled;
+    btn.hidden = on || !config.pushEnabled;
+    btn.disabled = false;
+    if (on) { $("#blockedHelp").hidden = true; return; }
     if (Notification.permission === "denied") {
-      $("#notifBtn").hidden = false; $("#notifBtn").disabled = true;
-      $("#notifBtn").textContent = "Avisos bloqueados en los ajustes del móvil";
+      btn.textContent = "Avisos bloqueados: ver cómo activarlos";
+      btn.dataset.mode = "help";
+    } else {
+      btn.textContent = "Activar avisos";
+      btn.dataset.mode = "ask";
     }
   }
+
   $("#notifBtn").addEventListener("click", async () => {
+    if ($("#notifBtn").dataset.mode === "help") return showBlockedHelp(!$("#blockedHelp").hidden ? false : true);
     try {
       const perm = await Notification.requestPermission();
-      if (perm !== "granted") { toast("Sin permiso no podemos avisarte"); return refreshNotifUI(); }
-      let sub = await currentSub();
-      if (!sub) sub = await swReg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlB64ToUint8Array(config.vapidPublicKey) });
-      await saveSub(sub);
+      if (perm !== "granted") {
+        await refreshNotifUI();
+        if (Notification.permission === "denied") showBlockedHelp();
+        else toast("Sin permiso no podemos avisarte");
+        return;
+      }
+      await subscribe();
       toast("¡Avisos activados!");
-    } catch (err) { toast("No se han podido activar los avisos"); console.error(err); }
+    } catch (err) {
+      console.error(err);
+      toast("No se han podido activar los avisos");
+      showBlockedHelp();
+    }
     refreshNotifUI();
   });
+
+  // Al volver de los ajustes del móvil: si ya hay permiso, se activan solos.
+  async function recheckPermission() {
+    if (!(pushSupported && swReg && config.pushEnabled)) return;
+    const sub = await currentSub().catch(() => null);
+    if (Notification.permission === "granted" && !sub) {
+      try { await subscribe(); toast("¡Avisos activados!"); } catch (e) { console.error(e); }
+    }
+    await refreshNotifUI();
+  }
+  $("#bhRetry").addEventListener("click", async () => {
+    await recheckPermission();
+    if (Notification.permission === "granted") { $("#blockedHelp").hidden = true; }
+    else if (Notification.permission === "default") { $("#blockedHelp").hidden = true; $("#notifBtn").click(); }
+    else toast("Siguen bloqueados. Revisa los pasos o cierra y vuelve a abrir la app.");
+  });
+
   for (const id of ["#nIda", "#nVuelta"]) {
     $(id).addEventListener("change", async () => {
       store.set("fa_pref", JSON.stringify({ ida: $("#nIda").checked, vuelta: $("#nVuelta").checked }));
@@ -342,6 +392,6 @@
 
   load();
   setInterval(load, 30000);
-  document.addEventListener("visibilitychange", () => { if (!document.hidden) load(); });
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) { load(); recheckPermission(); } });
   window.addEventListener("online", load);
 })();

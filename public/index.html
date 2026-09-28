@@ -43,6 +43,27 @@
     <p>Hace falta iOS 16.4 o posterior.</p>
   </section>
 
+  <section class="panel help" id="blockedHelp" hidden>
+    <h2>Cómo desbloquear los avisos</h2>
+    <p id="bhBrowser" class="banner" hidden>Estás usando el navegador de Xiaomi, que no admite bien los avisos. Abre la dirección de la app en <strong>Google Chrome</strong>, instálala desde ahí y pulsa «Activar avisos».</p>
+    <div id="bhAndroid">
+      <p>Tu móvil tiene los avisos bloqueados para esta app. Haz estos pasos (los nombres pueden variar un poco según el modelo):</p>
+      <ol>
+        <li><strong>Permiso de la app:</strong> mantén pulsado el icono de la app en la pantalla de inicio → <em>Información de la aplicación</em> → <em>Notificaciones</em> → activa <em>Mostrar notificaciones</em>. Si la usas desde Chrome sin instalar: pulsa el icono a la izquierda de la dirección → <em>Permisos</em> → <em>Notificaciones</em> → <em>Permitir</em>.</li>
+        <li><strong>Permiso de Chrome:</strong> <em>Ajustes</em> del móvil → <em>Aplicaciones</em> → <em>Administrar aplicaciones</em> → <em>Chrome</em> → <em>Notificaciones</em> → activa <em>Mostrar notificaciones</em>.</li>
+        <li><strong>Solo en Xiaomi, Redmi y POCO</strong> (para que lleguen con la app cerrada): en esa misma pantalla de Chrome, activa <em>Inicio automático</em> y en <em>Ahorro de batería</em> elige <em>Sin restricciones</em>.</li>
+        <li>Vuelve aquí y pulsa el botón de abajo.</li>
+      </ol>
+    </div>
+    <div id="bhIOS" hidden>
+      <p>En iPhone: <em>Ajustes</em> → <em>Notificaciones</em> → busca <em>Felipa-Albacete</em> → activa <em>Permitir notificaciones</em>. Recuerda que la app debe estar añadida a la pantalla de inicio desde Safari.</p>
+    </div>
+    <div id="bhDesktop" hidden>
+      <p>En el ordenador: pulsa el icono a la izquierda de la dirección → <em>Notificaciones</em> → <em>Permitir</em>, y recarga la página.</p>
+    </div>
+    <div class="formact"><button class="btn go" id="bhRetry">Ya lo he cambiado, comprobar</button></div>
+  </section>
+
   <section class="panel" id="notifPanel" hidden>
     <h2>Avisos</h2>
     <p id="notifText">Te avisaremos cuando alguien publique un viaje.</p>
@@ -61,9 +82,9 @@
   <p id="state" class="status" role="status">Cargando viajes…</p>
   <main id="list" aria-live="polite"></main>
 
-  <section class="coin" aria-label="Aportación">
-    <div class="c" aria-hidden="true">1,5 €</div>
-    <p><strong>1,5 € por reserva y trayecto</strong> para quien conduce, sean las plazas que sean. Es un pago simbólico para ayudar con la gasolina: se entrega en mano al subir. Es compartir gastos, no un servicio de pago.</p>
+  <section class="coin" aria-label="Donaciones voluntarias">
+    <div class="c" aria-hidden="true">🤝</div>
+    <p><strong>Viajar es gratis.</strong> Queda la puerta abierta a hacer una donación al conductor como muestra de gratitud, si así lo deseas: en mano, de forma voluntaria y lo que cada uno quiera. Es compartir gastos entre vecinos, no un servicio de pago.</p>
   </section>
 
   <section class="how">
@@ -121,7 +142,7 @@
       <label for="jPlaces">¿Cuántas plazas necesitas? <span class="hint">(contándote a ti)</span></label>
       <select id="jPlaces"><option value="1">1 plaza</option></select>
     </div>
-    <p class="status" id="jCost">Recuerda llevar 1,5 € para quien conduce.</p>
+    <p class="status" id="jCost">Si quieres, puedes hacer una donación voluntaria a quien conduce para ayudar con la gasolina.</p>
     <div class="formact">
       <button type="button" class="btn ghost" id="jCancel">Cancelar</button>
       <button type="submit" class="btn go">Apuntarme</button>

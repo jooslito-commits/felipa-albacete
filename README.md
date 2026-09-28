@@ -7,7 +7,7 @@ App web para que los vecinos de La Felipa compartan coche para ir y volver de Al
 - Muestra los viajes en dos sentidos: **a Albacete** (recogida en la salida de La Felipa) y **a La Felipa** (recogida en la salida de Albacete).
 - Quien conduce publica día, hora, plazas libres, punto de recogida y una nota opcional.
 - Los vecinos se apuntan con su nombre y eligen **cuántas plazas** necesitan (por ejemplo, para ir con un hijo). Las plazas se descuentan y el coche nunca admite más de las indicadas, aunque dos personas reserven a la vez. Para cambiar el número de plazas, se anula la reserva («Ya no voy») y se vuelve a hacer.
-- Se recuerda la aportación voluntaria de **1,5 € por reserva y trayecto** para quien conduce, sea cual sea el número de plazas (pago simbólico). El importe está en `FEE` al principio de `public/app.js`.
+- No hay ningún precio: quien quiera puede hacer una **donación voluntaria** a quien conduce para ayudar con la gasolina. La app solo lo recuerda con un texto.
 - **Busco viaje:** si nadie ha publicado un viaje a su hora, un vecino puede dejar una petición (sentido, día, hora aproximada y plazas). Los conductores reciben un aviso y, al pulsar **«Yo te llevo»**, se publica su viaje con esa persona ya apuntada, que recibe un aviso. Cada vecino puede tener hasta 5 peticiones abiertas.
 - **Avisos (notificaciones):**
   - Cada vecino recibe un aviso de cada viaje nuevo, y de cada petición de «Busco viaje», del sentido que elija.
@@ -22,6 +22,10 @@ App web para que los vecinos de La Felipa compartan coche para ir y volver de Al
 
 - **Android (Chrome):** abrir la dirección de la app y pulsar «Instalar la app», o el menú ⋮ → «Instalar aplicación». Después, pulsar «Activar avisos».
 - **iPhone (Safari, iOS 16.4 o posterior):** abrir la dirección en Safari, pulsar el botón de compartir y elegir «Añadir a pantalla de inicio». Después, abrir la app desde el nuevo icono y pulsar «Activar avisos». En iPhone los avisos **solo funcionan si la app está añadida a la pantalla de inicio**.
+
+## Si los avisos aparecen bloqueados (sobre todo en Xiaomi)
+
+Cuando el móvil bloquea los avisos, ninguna web puede volver a pedir permiso por sí sola: hay que permitirlos a mano en los ajustes. La app lo detecta y muestra el botón «Avisos bloqueados: ver cómo activarlos», con los pasos para Android (incluidos los ajustes de Xiaomi, Redmi y POCO: *Inicio automático* y *Ahorro de batería → Sin restricciones*), iPhone u ordenador. Si detecta el navegador propio de Xiaomi, recomienda usar Google Chrome. Al volver de los ajustes, la app comprueba sola el permiso y activa los avisos.
 
 ## Requisitos técnicos
 
@@ -100,7 +104,7 @@ docker-entrypoint.sh      Arranque del contenedor (permisos del disco)
 test/api.test.js          Pruebas automáticas
 ```
 
-## Sobre la aportación de 1,5 €
+## Sobre las donaciones voluntarias
 
 Compartir coche entre particulares es legal en España mientras sea para **compartir gastos** y el conductor no obtenga beneficio. La app lo presenta como una ayuda voluntaria para la gasolina. Si el proyecto crece, conviene confirmarlo con un asesor.
 
