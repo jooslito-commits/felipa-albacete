@@ -83,6 +83,9 @@ async function init() {
     );
     CREATE INDEX IF NOT EXISTS subs_device ON subscriptions(device_id);
   `);
+  // Plazas por reserva (añadida después: se crea solo si falta; las reservas antiguas cuentan como 1 plaza).
+  const riderCols = (await all("PRAGMA table_info(riders)")).map(c => c.name);
+  if (!riderCols.includes("places")) await q("ALTER TABLE riders ADD COLUMN places INTEGER NOT NULL DEFAULT 1");
 
   // Claves de los avisos: variables de entorno si existen; si no, se generan una vez y se guardan en la base de datos.
   let keys;
@@ -226,17 +229,20 @@ app.get("/api/trips", auth, wrap(async (req, res) => {
   const trips = (await all("SELECT * FROM trips WHERE date >= ? ORDER BY date, time", nowParts().date))
     .filter(t => !isPast(t.date, t.time));
   const riders = trips.length
-    ? await all(`SELECT trip_id, device_id, name FROM riders WHERE trip_id IN (${trips.map(() => "?").join(",")}) ORDER BY created_at`, ...trips.map(t => t.id))
+    ? await all(`SELECT trip_id, device_id, name, places FROM riders WHERE trip_id IN (${trips.map(() => "?").join(",")}) ORDER BY created_at`, ...trips.map(t => t.id))
     : [];
   res.json({
     trips: trips.map(t => {
       const rs = riders.filter(r => r.trip_id === t.id);
+      const mineR = rs.find(r => r.device_id === req.device);
       return {
         id: t.id, dir: t.dir, date: t.date, time: t.time, seats: Number(t.seats),
         driver: t.driver, place: t.place, note: t.note,
         mine: t.owner_device === req.device,
-        joined: rs.some(r => r.device_id === req.device),
-        riders: rs.map(r => r.name),
+        joined: Boolean(mineR),
+        myPlaces: mineR ? Number(mineR.places) : 0,
+        taken: rs.reduce((n, r) => n + Number(r.places), 0),
+        riders: rs.map(r => ({ name: r.name, places: Number(r.places) })),
       };
     }),
   });
@@ -285,23 +291,33 @@ app.delete("/api/trips/:id", rateLimit, auth, wrap(async (req, res) => {
   res.json({ ok: true });
 }));
 
+const takenPlaces = async tripId => Number((await one("SELECT COALESCE(SUM(places), 0) AS n FROM riders WHERE trip_id = ?", tripId)).n);
+const plazas = n => `${n} ${n === 1 ? "plaza" : "plazas"}`;
+
 app.post("/api/trips/:id/join", rateLimit, auth, wrap(async (req, res) => {
   const name = clean(req.body?.name, 40);
+  const places = req.body?.places === undefined ? 1 : Number(req.body.places);
   if (!name) return res.status(400).json({ error: "Escribe tu nombre." });
+  if (!Number.isInteger(places) || places < 1 || places > 4) return res.status(400).json({ error: "Elige entre 1 y 4 plazas." });
   const t = await one("SELECT * FROM trips WHERE id = ?", req.params.id);
   if (!t) return res.status(404).json({ error: "Ese viaje ya no existe." });
   if (t.owner_device === req.device) return res.status(400).json({ error: "No puedes apuntarte a tu propio viaje." });
   if (isPast(t.date, t.time, 0)) return res.status(400).json({ error: "Este viaje ya ha salido." });
-  if (await one("SELECT 1 AS x FROM riders WHERE trip_id = ? AND device_id = ?", t.id, req.device)) return res.json({ ok: true });
-  // Una sola sentencia: solo inserta si aún quedan plazas (evita pasarse aunque dos personas se apunten a la vez).
-  const r = await q(`INSERT OR IGNORE INTO riders (trip_id, device_id, name, created_at)
-    SELECT ?, ?, ?, ? WHERE (SELECT COUNT(*) FROM riders WHERE trip_id = ?) < (SELECT seats FROM trips WHERE id = ?)`,
-    t.id, req.device, name, Date.now(), t.id, t.id);
-  if (!r.rowsAffected) return res.status(409).json({ error: "Lo sentimos, el coche ya está completo." });
-  const left = Number(t.seats) - Number((await one("SELECT COUNT(*) AS n FROM riders WHERE trip_id = ?", t.id)).n);
+  if (await one("SELECT 1 AS x FROM riders WHERE trip_id = ? AND device_id = ?", t.id, req.device)) {
+    return res.status(409).json({ error: "Ya tienes una reserva en este viaje. Si quieres cambiar las plazas, pulsa «Ya no voy» y vuelve a apuntarte." });
+  }
+  // Una sola sentencia: solo inserta si caben todas las plazas pedidas (evita pasarse aunque dos personas reserven a la vez).
+  const r = await q(`INSERT OR IGNORE INTO riders (trip_id, device_id, name, places, created_at)
+    SELECT ?, ?, ?, ?, ? WHERE (SELECT COALESCE(SUM(places), 0) FROM riders WHERE trip_id = ?) + ? <= (SELECT seats FROM trips WHERE id = ?)`,
+    t.id, req.device, name, places, Date.now(), t.id, places, t.id);
+  if (!r.rowsAffected) {
+    const free = Number(t.seats) - await takenPlaces(t.id);
+    return res.status(409).json({ error: free > 0 ? `Solo queda${free === 1 ? "" : "n"} ${plazas(free)} libre${free === 1 ? "" : "s"}.` : "Lo sentimos, el coche ya está completo." });
+  }
+  const left = Number(t.seats) - await takenPlaces(t.id);
   await safely(notifyDevice(t.owner_device, {
-    title: `${name} se ha apuntado`,
-    body: `Viaje ${DIR_TEXT[t.dir]} de ${dayWord(t.date)} a las ${t.time}. ${left > 0 ? `Quedan ${left} ${left === 1 ? "plaza" : "plazas"}.` : "El coche está completo."}`,
+    title: places === 1 ? `${name} se ha apuntado` : `${name} ha reservado ${plazas(places)}`,
+    body: `Viaje ${DIR_TEXT[t.dir]} de ${dayWord(t.date)} a las ${t.time}. ${left > 0 ? `Quedan ${plazas(left)}.` : "El coche está completo."}`,
     tag: `trip-${t.id}-riders`, url: `/?dir=${t.dir}`,
   }));
   res.json({ ok: true });
@@ -310,12 +326,12 @@ app.post("/api/trips/:id/join", rateLimit, auth, wrap(async (req, res) => {
 app.delete("/api/trips/:id/join", rateLimit, auth, wrap(async (req, res) => {
   const t = await one("SELECT * FROM trips WHERE id = ?", req.params.id);
   if (!t) return res.status(404).json({ error: "Ese viaje ya no existe." });
-  const r = await one("SELECT name FROM riders WHERE trip_id = ? AND device_id = ?", t.id, req.device);
+  const r = await one("SELECT name, places FROM riders WHERE trip_id = ? AND device_id = ?", t.id, req.device);
   if (!r) return res.json({ ok: true });
   await q("DELETE FROM riders WHERE trip_id = ? AND device_id = ?", t.id, req.device);
   await safely(notifyDevice(t.owner_device, {
     title: `${r.name} ya no va`,
-    body: `Se ha liberado una plaza en tu viaje ${DIR_TEXT[t.dir]} de ${dayWord(t.date)} a las ${t.time}.`,
+    body: `Se ha${Number(r.places) === 1 ? "" : "n"} liberado ${Number(r.places) === 1 ? "una plaza" : plazas(Number(r.places))} en tu viaje ${DIR_TEXT[t.dir]} de ${dayWord(t.date)} a las ${t.time}.`,
     tag: `trip-${t.id}-riders`, url: `/?dir=${t.dir}`,
   }));
   res.json({ ok: true });
