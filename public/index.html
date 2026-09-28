@@ -20,7 +20,10 @@
 <body>
 <div class="wrap">
   <header class="sign">
-    <h1>La Felipa<span aria-hidden="true">⇄</span>Albacete</h1>
+    <div class="sign-head">
+      <img class="logo" src="/logo-deposito.jpg" alt="" width="88" height="88">
+      <h1>La Felipa<span aria-hidden="true">⇄</span>Albacete</h1>
+    </div>
     <p>Coches de vecinos con sitio libre. Mira quién va, apúntate y espera en la salida.</p>
   </header>
 
@@ -59,8 +62,8 @@
   <main id="list" aria-live="polite"></main>
 
   <section class="coin" aria-label="Aportación">
-    <div class="c" aria-hidden="true">2 €</div>
-    <p><strong>2 € por reserva y trayecto</strong> para quien conduce, sean las plazas que sean. Es un pago simbólico para ayudar con la gasolina. Se entrega en mano al subir. Es compartir gastos, no un servicio de pago.</p>
+    <div class="c" aria-hidden="true">1,5 €</div>
+    <p><strong>1,5 € por reserva y trayecto</strong> para quien conduce, sean las plazas que sean. Es un pago simbólico para ayudar con la gasolina: se entrega en mano al subir. Es compartir gastos, no un servicio de pago.</p>
   </section>
 
   <section class="how">
@@ -68,16 +71,21 @@
     <ol>
       <li>Si vas en coche, pulsa «Ofrezco mi coche» e indica día, hora y plazas libres.</li>
       <li>Si necesitas ir, busca un viaje, pulsa «Me apunto» y elige cuántas plazas necesitas.</li>
+      <li>Si no hay ningún viaje a tu hora, pulsa «Busco viaje». Los conductores recibirán un aviso y podrán pulsar «Yo te llevo».</li>
       <li>Estate en el punto de recogida unos minutos antes de la hora.</li>
     </ol>
   </section>
 </div>
 
-<button class="fab" id="offer">Ofrezco mi coche</button>
+<div class="actbar">
+  <button class="fab seek" id="seek">Busco viaje</button>
+  <button class="fab offer" id="offer">Ofrezco mi coche</button>
+</div>
 
 <dialog id="dlg" aria-labelledby="dlgTitle">
   <form class="form" id="form" method="dialog">
     <h2 id="dlgTitle">Ofrezco mi coche</h2>
+    <p class="banner" id="fFor" hidden></p>
     <label for="fDir">Sentido</label>
     <select id="fDir">
       <option value="ida">De La Felipa a Albacete</option>
@@ -113,10 +121,38 @@
       <label for="jPlaces">¿Cuántas plazas necesitas? <span class="hint">(contándote a ti)</span></label>
       <select id="jPlaces"><option value="1">1 plaza</option></select>
     </div>
-    <p class="status" id="jCost">Recuerda llevar 2 € para quien conduce.</p>
+    <p class="status" id="jCost">Recuerda llevar 1,5 € para quien conduce.</p>
     <div class="formact">
       <button type="button" class="btn ghost" id="jCancel">Cancelar</button>
       <button type="submit" class="btn go">Apuntarme</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="seekDlg" aria-labelledby="seekTitle">
+  <form class="form" id="seekForm" method="dialog">
+    <h2 id="seekTitle">Busco viaje</h2>
+    <p class="status">Si nadie ha publicado un viaje a tu hora, déjalo aquí. Avisaremos a los conductores.</p>
+    <label for="sDir">Sentido</label>
+    <select id="sDir">
+      <option value="ida">De La Felipa a Albacete</option>
+      <option value="vuelta">De Albacete a La Felipa</option>
+    </select>
+    <div class="row">
+      <div><label for="sDate">Día</label><input id="sDate" type="date" required></div>
+      <div><label for="sTime">Hora aproximada</label><input id="sTime" type="time" required></div>
+    </div>
+    <div class="row">
+      <div><label for="sName">Tu nombre</label><input id="sName" maxlength="40" required autocomplete="given-name"></div>
+      <div><label for="sPlaces">Plazas</label>
+        <select id="sPlaces"><option value="1">1 plaza</option><option value="2">2 plazas</option><option value="3">3 plazas</option><option value="4">4 plazas</option></select></div>
+    </div>
+    <label for="sNote">Nota <span class="hint">(opcional; la ven todos, no pongas tu teléfono)</span></label>
+    <textarea id="sNote" rows="2" maxlength="200" placeholder="Ej.: tengo médico a las 10:00 en el hospital"></textarea>
+    <p id="sStatus" class="status" role="status"></p>
+    <div class="formact">
+      <button type="button" class="btn ghost" id="sCancel">Cancelar</button>
+      <button type="submit" class="btn go" id="sSave">Publicar petición</button>
     </div>
   </form>
 </dialog>

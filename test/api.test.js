@@ -6,6 +6,7 @@ import path from "node:path";
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "felipa-"));
 process.env.DATA_DIR = tmp;
+process.env.RATE_LIMIT = "1000";
 const { app, db } = await import("../server.js");
 let server, base;
 before(() => new Promise(r => { server = app.listen(0, () => { base = `http://127.0.0.1:${server.address().port}`; r(); }); }));
@@ -34,7 +35,7 @@ test("flujo completo de un viaje", async () => {
   assert.equal((await call("POST", `/api/trips/${id}/join`, p2, { name: "Luis" })).status, 409, "coche completo");
 
   l = await call("GET", "/api/trips", conductor);
-  assert.deepEqual(l.body.trips[0].riders, ["Ana"]);
+  assert.deepEqual(l.body.trips[0].riders, [{ name: "Ana", places: 1 }]);
   assert.equal(l.body.trips[0].mine, true);
 
   assert.equal((await call("DELETE", `/api/trips/${id}`, p1)).status, 403, "solo el conductor cancela");
@@ -71,4 +72,58 @@ test("dos personas a la vez por la última plaza: solo entra una", async () => {
   assert.deepEqual([r1.status, r2.status, r3.status].sort(), [200, 409, 409]);
   const l = await call("GET", "/api/trips", dev("d"));
   assert.equal(l.body.trips.find(t => t.id === c.body.id).riders.length, 1);
+});
+
+
+test("reservar varias plazas", async () => {
+  const c = await call("POST", "/api/trips", dev("k"), { dir: "ida", date: tomorrow, time: "10:00", seats: 4, driver: "Carmen" });
+  const id = c.body.id;
+  assert.equal((await call("POST", `/api/trips/${id}/join`, dev("l"), { name: "Pili", places: 3 })).status, 200);
+  const lleno = await call("POST", `/api/trips/${id}/join`, dev("m"), { name: "Juan", places: 2 });
+  assert.equal(lleno.status, 409);
+  assert.match(lleno.body.error, /Solo queda 1 plaza libre/);
+  assert.equal((await call("POST", `/api/trips/${id}/join`, dev("l"), { name: "Pili", places: 1 })).status, 409, "no duplica la reserva");
+  assert.equal((await call("POST", `/api/trips/${id}/join`, dev("m"), { name: "Juan", places: 5 })).status, 400);
+  assert.equal((await call("POST", `/api/trips/${id}/join`, dev("m"), { name: "Juan", places: 1 })).status, 200);
+  let t = (await call("GET", "/api/trips", dev("l"))).body.trips.find(x => x.id === id);
+  assert.equal(t.taken, 4); assert.equal(t.myPlaces, 3);
+  assert.deepEqual(t.riders, [{ name: "Pili", places: 3 }, { name: "Juan", places: 1 }]);
+  await call("DELETE", `/api/trips/${id}/join`, dev("l"));
+  t = (await call("GET", "/api/trips", dev("k"))).body.trips.find(x => x.id === id);
+  assert.equal(t.taken, 1, "al anular se liberan las 3 plazas");
+});
+
+test("dos reservas a la vez que no caben juntas: solo entra una", async () => {
+  const c = await call("POST", "/api/trips", dev("n"), { dir: "vuelta", date: tomorrow, time: "20:00", seats: 3, driver: "Paco" });
+  const rs = await Promise.all([["o", 2], ["p", 2]].map(([d, n]) => call("POST", `/api/trips/${c.body.id}/join`, dev(d), { name: d, places: n })));
+  assert.deepEqual(rs.map(r => r.status).sort(), [200, 409]);
+});
+
+test("busco viaje y «yo te llevo»", async () => {
+  const pasajera = dev("q"), conductor = dev("r"), otro = dev("s");
+  const r = await call("POST", "/api/requests", pasajera, { dir: "ida", date: tomorrow, time: "09:30", places: 2, name: "Lola", note: "voy al médico" });
+  assert.equal(r.status, 201);
+  let l = await call("GET", "/api/trips", conductor);
+  const pet = l.body.requests.find(x => x.id === r.body.id);
+  assert.equal(pet.places, 2); assert.equal(pet.mine, false);
+  assert.equal((await call("GET", "/api/trips", pasajera)).body.requests.find(x => x.id === r.body.id).mine, true);
+
+  assert.equal((await call("DELETE", `/api/requests/${r.body.id}`, otro)).status, 403, "solo quien la publicó la retira");
+  const pocas = await call("POST", "/api/trips", conductor, { dir: "ida", date: tomorrow, time: "09:30", seats: 1, driver: "Juan", fromRequest: r.body.id });
+  assert.equal(pocas.status, 400, "no caben 2 plazas en 1");
+  assert.equal((await call("POST", "/api/trips", pasajera, { dir: "ida", date: tomorrow, time: "09:30", seats: 3, driver: "Lola", fromRequest: r.body.id })).status, 400, "no puede llevarse a sí misma");
+
+  const t = await call("POST", "/api/trips", conductor, { dir: "ida", date: tomorrow, time: "09:15", seats: 3, driver: "Juan", fromRequest: r.body.id });
+  assert.equal(t.status, 201); assert.equal(t.body.attached, true);
+  l = await call("GET", "/api/trips", pasajera);
+  assert.equal(l.body.requests.some(x => x.id === r.body.id), false, "la petición desaparece al tener viaje");
+  const viaje = l.body.trips.find(x => x.id === t.body.id);
+  assert.equal(viaje.joined, true); assert.equal(viaje.myPlaces, 2); assert.equal(viaje.taken, 2);
+
+  const otra = await call("POST", "/api/trips", otro, { dir: "ida", date: tomorrow, time: "09:30", seats: 3, driver: "Pedro", fromRequest: r.body.id });
+  assert.equal(otra.status, 409, "no se puede atender dos veces");
+
+  const r2 = await call("POST", "/api/requests", pasajera, { dir: "vuelta", date: tomorrow, time: "14:00", places: 1, name: "Lola" });
+  assert.equal((await call("DELETE", `/api/requests/${r2.body.id}`, pasajera)).status, 200);
+  assert.equal((await call("POST", "/api/requests", pasajera, { dir: "vuelta", date: "2020-01-01", time: "14:00", name: "Lola" })).status, 400);
 });

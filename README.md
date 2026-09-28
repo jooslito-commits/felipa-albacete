@@ -6,10 +6,11 @@ App web para que los vecinos de La Felipa compartan coche para ir y volver de Al
 
 - Muestra los viajes en dos sentidos: **a Albacete** (recogida en la salida de La Felipa) y **a La Felipa** (recogida en la salida de Albacete).
 - Quien conduce publica día, hora, plazas libres, punto de recogida y una nota opcional.
-- Los vecinos se apuntan con su nombre. Las plazas se descuentan y el coche no admite más pasajeros de los indicados.
-- Se recuerda la aportación voluntaria de **2 € por trayecto** para quien conduce.
+- Los vecinos se apuntan con su nombre y eligen **cuántas plazas** necesitan (por ejemplo, para ir con un hijo). Las plazas se descuentan y el coche nunca admite más de las indicadas, aunque dos personas reserven a la vez. Para cambiar el número de plazas, se anula la reserva («Ya no voy») y se vuelve a hacer.
+- Se recuerda la aportación voluntaria de **1,5 € por reserva y trayecto** para quien conduce, sea cual sea el número de plazas (pago simbólico). El importe está en `FEE` al principio de `public/app.js`.
+- **Busco viaje:** si nadie ha publicado un viaje a su hora, un vecino puede dejar una petición (sentido, día, hora aproximada y plazas). Los conductores reciben un aviso y, al pulsar **«Yo te llevo»**, se publica su viaje con esa persona ya apuntada, que recibe un aviso. Cada vecino puede tener hasta 5 peticiones abiertas.
 - **Avisos (notificaciones):**
-  - Cada vecino recibe un aviso de cada viaje nuevo del sentido que elija.
+  - Cada vecino recibe un aviso de cada viaje nuevo, y de cada petición de «Busco viaje», del sentido que elija.
   - Quien conduce recibe un aviso cuando alguien se apunta o se desapunta.
   - Los pasajeros reciben un aviso si se cancela el viaje.
 - Se puede **instalar** en el móvil y abrir sin cobertura (verá la última copia guardada).
@@ -90,6 +91,7 @@ vercel.json               Ajustes de caché para Vercel
 public/index.html         Página de la app
 public/app.js             Lógica en el móvil (viajes, instalación, avisos)
 public/styles.css         Estilos (modo claro y oscuro)
+public/logo-deposito.jpg  Foto del depósito de agua usada como logo
 public/sw.js              Service worker: instalación, uso sin cobertura y avisos
 public/manifest.webmanifest  Nombre e iconos de la app instalada
 public/icons/             Iconos
@@ -98,7 +100,7 @@ docker-entrypoint.sh      Arranque del contenedor (permisos del disco)
 test/api.test.js          Pruebas automáticas
 ```
 
-## Sobre la aportación de 2 €
+## Sobre la aportación de 1,5 €
 
 Compartir coche entre particulares es legal en España mientras sea para **compartir gastos** y el conductor no obtenga beneficio. La app lo presenta como una ayuda voluntaria para la gasolina. Si el proyecto crece, conviene confirmarlo con un asesor.
 

@@ -13,6 +13,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || 3000);
 const TZ = process.env.APP_TIMEZONE || "Europe/Madrid";
 const VAPID_SUBJECT = process.env.VAPID_SUBJECT || "";
+const RATE_LIMIT = Number(process.env.RATE_LIMIT || 30); // escrituras por minuto y conexión
 
 // Base de datos: Turso si hay TURSO_DATABASE_URL; si no, un archivo local (para pruebas o servidor propio).
 // Con Turso se usa el cliente "web" (sin piezas nativas), que es el que funciona en Vercel.
@@ -82,6 +83,16 @@ async function init() {
       notify_ida INTEGER NOT NULL DEFAULT 1, notify_vuelta INTEGER NOT NULL DEFAULT 1, created_at INTEGER NOT NULL
     );
     CREATE INDEX IF NOT EXISTS subs_device ON subscriptions(device_id);
+    CREATE TABLE IF NOT EXISTS requests (
+      id TEXT PRIMARY KEY,
+      dir TEXT NOT NULL CHECK (dir IN ('ida','vuelta')),
+      date TEXT NOT NULL, time TEXT NOT NULL,
+      places INTEGER NOT NULL CHECK (places BETWEEN 1 AND 4),
+      name TEXT NOT NULL, note TEXT NOT NULL DEFAULT '',
+      owner_device TEXT NOT NULL, created_at INTEGER NOT NULL,
+      trip_id TEXT
+    );
+    CREATE INDEX IF NOT EXISTS requests_date ON requests(date);
   `);
   // Plazas por reserva (añadida después: se crea solo si falta; las reservas antiguas cuentan como 1 plaza).
   const riderCols = (await all("PRAGMA table_info(riders)")).map(c => c.name);
@@ -138,6 +149,7 @@ function dayWord(date) {
   return new Date(Date.UTC(y, m - 1, d, 12)).toLocaleDateString("es-ES", { weekday: "long", day: "numeric", month: "long", timeZone: "UTC" });
 }
 const DIR_TEXT = { ida: "a Albacete", vuelta: "a La Felipa" };
+const plazas = n => `${n} ${n === 1 ? "plaza" : "plazas"}`;
 const DEFAULT_PLACE = { ida: "Salida de La Felipa", vuelta: "Salida de Albacete" };
 
 // Borra viajes de días anteriores (como mucho una vez por hora y arranque).
@@ -149,6 +161,7 @@ async function cleanup() {
   await db.batch([
     { sql: "DELETE FROM riders WHERE trip_id IN (SELECT id FROM trips WHERE date < ?)", args: [today] },
     { sql: "DELETE FROM trips WHERE date < ?", args: [today] },
+    { sql: "DELETE FROM requests WHERE date < ?", args: [today] },
   ], "write");
 }
 
@@ -166,12 +179,13 @@ async function sendTo(rows, payload) {
     }
   }));
 }
-async function notifyNewTrip(trip) {
+async function notifyNewTrip(trip, free = trip.seats, skipDevice = "") {
+  if (free < 1) return;
   const col = trip.dir === "ida" ? "notify_ida" : "notify_vuelta";
-  const rows = await all(`SELECT endpoint, keys_json FROM subscriptions WHERE ${col} = 1 AND device_id != ?`, trip.owner_device);
+  const rows = await all(`SELECT endpoint, keys_json FROM subscriptions WHERE ${col} = 1 AND device_id != ? AND device_id != ?`, trip.owner_device, skipDevice);
   await sendTo(rows, {
     title: `Viaje ${DIR_TEXT[trip.dir]} ${dayWord(trip.date)} a las ${trip.time}`,
-    body: `${trip.driver} tiene ${trip.seats} ${trip.seats === 1 ? "plaza" : "plazas"}. Recogida: ${trip.place}.`,
+    body: `${trip.driver} tiene ${free} ${free === 1 ? "plaza libre" : "plazas libres"}. Recogida: ${trip.place}.`,
     tag: `trip-${trip.id}`, url: `/?dir=${trip.dir}`,
   });
 }
@@ -200,7 +214,7 @@ function rateLimit(req, res, next) {
   if (Date.now() - hitsWindow > 60_000) { hits.clear(); hitsWindow = Date.now(); }
   const n = (hits.get(req.ip) || 0) + 1;
   hits.set(req.ip, n);
-  if (n > 30) return res.status(429).json({ error: "Demasiadas peticiones. Espera un minuto." });
+  if (n > RATE_LIMIT) return res.status(429).json({ error: "Demasiadas peticiones. Espera un minuto." });
   next();
 }
 
@@ -231,7 +245,14 @@ app.get("/api/trips", auth, wrap(async (req, res) => {
   const riders = trips.length
     ? await all(`SELECT trip_id, device_id, name, places FROM riders WHERE trip_id IN (${trips.map(() => "?").join(",")}) ORDER BY created_at`, ...trips.map(t => t.id))
     : [];
+  const requests = (await all("SELECT * FROM requests WHERE trip_id IS NULL AND date >= ? ORDER BY date, time", nowParts().date))
+    .filter(r => !isPast(r.date, r.time))
+    .map(r => ({
+      id: r.id, dir: r.dir, date: r.date, time: r.time, places: Number(r.places),
+      name: r.name, note: r.note, mine: r.owner_device === req.device,
+    }));
   res.json({
+    requests,
     trips: trips.map(t => {
       const rs = riders.filter(r => r.trip_id === t.id);
       const mineR = rs.find(r => r.device_id === req.device);
@@ -248,6 +269,13 @@ app.get("/api/trips", auth, wrap(async (req, res) => {
   });
 }));
 
+function checkWhen(date, time) {
+  if (isPast(date, time, 0)) return "Esa hora ya ha pasado.";
+  const n = nowParts();
+  if (toMinutes(date, time) - toMinutes(n.date, n.time) > 30 * 1440) return "Solo se puede publicar para los próximos 30 días.";
+  return "";
+}
+
 app.post("/api/trips", rateLimit, auth, wrap(async (req, res) => {
   const b = req.body || {};
   const dir = b.dir === "vuelta" ? "vuelta" : b.dir === "ida" ? "ida" : null;
@@ -258,10 +286,16 @@ app.post("/api/trips", rateLimit, auth, wrap(async (req, res) => {
   if (!dir || !date || !time || !driver || !(Number.isInteger(seats) && seats >= 1 && seats <= 4)) {
     return res.status(400).json({ error: "Revisa sentido, día, hora, plazas y nombre." });
   }
-  if (isPast(date, time, 0)) return res.status(400).json({ error: "Esa hora ya ha pasado." });
-  const n = nowParts();
-  if (toMinutes(date, time) - toMinutes(n.date, n.time) > 30 * 1440) {
-    return res.status(400).json({ error: "Solo se pueden publicar viajes de los próximos 30 días." });
+  const whenErr = checkWhen(date, time);
+  if (whenErr) return res.status(400).json({ error: whenErr });
+  // "Yo te llevo": el viaje se crea para atender una solicitud y esa persona queda apuntada.
+  let request = null;
+  if (b.fromRequest) {
+    request = await one("SELECT * FROM requests WHERE id = ?", String(b.fromRequest));
+    if (!request || request.trip_id) return res.status(409).json({ error: "Esa persona ya ha encontrado viaje o ha retirado su petición." });
+    if (request.owner_device === req.device) return res.status(400).json({ error: "No puedes llevarte a ti mismo." });
+    if (request.dir !== dir) return res.status(400).json({ error: "El sentido del viaje no coincide con la petición." });
+    if (Number(request.places) > seats) return res.status(400).json({ error: `Necesita ${request.places} plazas: pon al menos ${request.places} plazas libres.` });
   }
   const trip = {
     id: newId(), dir, date, time, seats, driver,
@@ -270,8 +304,23 @@ app.post("/api/trips", rateLimit, auth, wrap(async (req, res) => {
   };
   await q(`INSERT INTO trips (id, dir, date, time, seats, driver, place, note, owner_device, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)`,
     trip.id, dir, date, time, seats, driver, trip.place, trip.note, trip.owner_device, trip.created_at);
-  await safely(notifyNewTrip(trip));
-  res.status(201).json({ id: trip.id });
+  let attached = false;
+  if (request) {
+    const claim = await q("UPDATE requests SET trip_id = ? WHERE id = ? AND trip_id IS NULL", trip.id, request.id);
+    if (claim.rowsAffected) {
+      await q("INSERT OR IGNORE INTO riders (trip_id, device_id, name, places, created_at) VALUES (?,?,?,?,?)",
+        trip.id, request.owner_device, request.name, Number(request.places), Date.now());
+      attached = true;
+      await safely(notifyDevice(request.owner_device, {
+        title: `¡${driver} te lleva ${DIR_TEXT[dir]}!`,
+        body: `${dayWord(date)[0].toUpperCase() + dayWord(date).slice(1)} a las ${time}. Recogida: ${trip.place}. Tienes ${plazas(Number(request.places))} reservada${Number(request.places) === 1 ? "" : "s"}.`,
+        tag: `request-${request.id}`, url: `/?dir=${dir}`,
+      }));
+    }
+  }
+  const free = seats - (attached ? Number(request.places) : 0);
+  await safely(notifyNewTrip(trip, free, attached ? request.owner_device : ""));
+  res.status(201).json({ id: trip.id, attached });
 }));
 
 app.delete("/api/trips/:id", rateLimit, auth, wrap(async (req, res) => {
@@ -292,7 +341,6 @@ app.delete("/api/trips/:id", rateLimit, auth, wrap(async (req, res) => {
 }));
 
 const takenPlaces = async tripId => Number((await one("SELECT COALESCE(SUM(places), 0) AS n FROM riders WHERE trip_id = ?", tripId)).n);
-const plazas = n => `${n} ${n === 1 ? "plaza" : "plazas"}`;
 
 app.post("/api/trips/:id/join", rateLimit, auth, wrap(async (req, res) => {
   const name = clean(req.body?.name, 40);
@@ -334,6 +382,41 @@ app.delete("/api/trips/:id/join", rateLimit, auth, wrap(async (req, res) => {
     body: `Se ha${Number(r.places) === 1 ? "" : "n"} liberado ${Number(r.places) === 1 ? "una plaza" : plazas(Number(r.places))} en tu viaje ${DIR_TEXT[t.dir]} de ${dayWord(t.date)} a las ${t.time}.`,
     tag: `trip-${t.id}-riders`, url: `/?dir=${t.dir}`,
   }));
+  res.json({ ok: true });
+}));
+
+// ---------- "Busco viaje" ----------
+app.post("/api/requests", rateLimit, auth, wrap(async (req, res) => {
+  const b = req.body || {};
+  const dir = b.dir === "vuelta" ? "vuelta" : b.dir === "ida" ? "ida" : null;
+  const date = /^\d{4}-\d{2}-\d{2}$/.test(b.date) ? b.date : null;
+  const time = /^([01]\d|2[0-3]):[0-5]\d$/.test(b.time) ? b.time : null;
+  const places = Number(b.places ?? 1);
+  const name = clean(b.name, 40);
+  if (!dir || !date || !time || !name || !(Number.isInteger(places) && places >= 1 && places <= 4)) {
+    return res.status(400).json({ error: "Revisa sentido, día, hora, plazas y nombre." });
+  }
+  const whenErr = checkWhen(date, time);
+  if (whenErr) return res.status(400).json({ error: whenErr });
+  const open = Number((await one("SELECT COUNT(*) AS n FROM requests WHERE owner_device = ? AND trip_id IS NULL AND date >= ?", req.device, nowParts().date)).n);
+  if (open >= 5) return res.status(429).json({ error: "Ya tienes 5 peticiones abiertas. Retira alguna antes de publicar otra." });
+  const r = { id: newId(), dir, date, time, places, name, note: clean(b.note, 200), owner_device: req.device, created_at: Date.now() };
+  await q("INSERT INTO requests (id, dir, date, time, places, name, note, owner_device, created_at) VALUES (?,?,?,?,?,?,?,?,?)",
+    r.id, dir, date, time, places, name, r.note, r.owner_device, r.created_at);
+  const col = dir === "ida" ? "notify_ida" : "notify_vuelta";
+  await safely((async () => sendTo(await all(`SELECT endpoint, keys_json FROM subscriptions WHERE ${col} = 1 AND device_id != ?`, req.device), {
+    title: `${name} busca viaje ${DIR_TEXT[dir]}`,
+    body: `${dayWord(date)[0].toUpperCase() + dayWord(date).slice(1)} sobre las ${time}, ${plazas(places)}. Si vas en coche, pulsa «Yo te llevo».`,
+    tag: `request-${r.id}`, url: `/?dir=${dir}`,
+  }))());
+  res.status(201).json({ id: r.id });
+}));
+
+app.delete("/api/requests/:id", rateLimit, auth, wrap(async (req, res) => {
+  const r = await one("SELECT * FROM requests WHERE id = ?", req.params.id);
+  if (!r) return res.status(404).json({ error: "Esa petición ya no existe." });
+  if (r.owner_device !== req.device) return res.status(403).json({ error: "Solo quien la publicó puede retirarla." });
+  await q("DELETE FROM requests WHERE id = ?", r.id);
   res.json({ ok: true });
 }));
 
