@@ -1,5 +1,5 @@
 // Service worker: permite instalar la app, abrirla sin cobertura y recibir avisos.
-const CACHE = "felipa-v5"; // Cambia este número al publicar una versión nueva.
+const CACHE = "felipa-v6"; // Cambia este número al publicar una versión nueva.
 const SHELL = ["/", "/index.html", "/styles.css", "/app.js", "/manifest.webmanifest", "/icons/icon-192.png", "/logo-deposito.jpg"];
 
 self.addEventListener("install", e => {
@@ -24,9 +24,9 @@ self.addEventListener("fetch", e => {
 
 self.addEventListener("push", e => {
   let data = {};
-  try { data = e.data ? e.data.json() : {}; } catch { data = { title: "La Felipa ⇄ Albacete", body: e.data?.text() || "" }; }
+  try { data = e.data ? e.data.json() : {}; } catch { data = { title: "FelipaCar", body: e.data?.text() || "" }; }
   e.waitUntil((async () => {
-    await self.registration.showNotification(data.title || "La Felipa ⇄ Albacete", {
+    await self.registration.showNotification(data.title || "FelipaCar", {
       body: data.body || "Hay novedades en los viajes.",
       icon: "/icons/icon-192.png",
       badge: "/icons/badge-96.png",

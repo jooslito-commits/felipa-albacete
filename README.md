@@ -1,4 +1,4 @@
-# La Felipa ⇄ Albacete · coche compartido
+# FelipaCar · coche compartido La Felipa ⇄ Albacete
 
 App web para que los vecinos de La Felipa compartan coche para ir y volver de Albacete. Quien conduce publica su viaje y los demás se apuntan. Se instala en el móvil como una app, con su propio icono, y **avisa con una notificación** cuando alguien publica un viaje.
 

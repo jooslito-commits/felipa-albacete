@@ -113,3 +113,6 @@ input,select,textarea{width:100%;padding:10px 12px;border:2px solid var(--line);
 .help ol{margin:6px 0 0;padding-left:20px;font-size:15.5px}
 .help li{margin-bottom:8px}
 .help .formact{justify-content:flex-start}
+.sign .route{margin:4px 0 0;font:600 20px/1.1 "Barlow Condensed","Arial Narrow",sans-serif;opacity:1}
+.sign .route span[aria-hidden]{color:var(--wheat);margin:0 .2em}
+.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}

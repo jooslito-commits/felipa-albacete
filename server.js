@@ -1,4 +1,4 @@
-// Servidor de "La Felipa ⇄ Albacete": guarda viajes y envía notificaciones push.
+// Servidor de "FelipaCar" (La Felipa ⇄ Albacete): guarda viajes y envía notificaciones push.
 // Funciona igual en Vercel (función sin servidor + base de datos Turso) y en un servidor normal.
 import express from "express";
 import webpush from "web-push";
@@ -467,5 +467,5 @@ export default app;
 export { app, db };
 
 if (!process.env.VERCEL && process.argv[1] === fileURLToPath(import.meta.url)) {
-  app.listen(PORT, () => console.log(`La Felipa ⇄ Albacete escuchando en el puerto ${PORT}`));
+  app.listen(PORT, () => console.log(`FelipaCar escuchando en el puerto ${PORT}`));
 }
