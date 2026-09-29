@@ -97,6 +97,21 @@ async function init() {
   // Plazas por reserva (añadida después: se crea solo si falta; las reservas antiguas cuentan como 1 plaza).
   const riderCols = (await all("PRAGMA table_info(riders)")).map(c => c.name);
   if (!riderCols.includes("places")) await q("ALTER TABLE riders ADD COLUMN places INTEGER NOT NULL DEFAULT 1");
+  // Viajes fijos (se repiten ciertos días de la semana).
+  await db.executeMultiple(`
+    CREATE TABLE IF NOT EXISTS series (
+      id TEXT PRIMARY KEY,
+      dir TEXT NOT NULL CHECK (dir IN ('ida','vuelta')),
+      days TEXT NOT NULL, time TEXT NOT NULL,
+      seats INTEGER NOT NULL CHECK (seats BETWEEN 1 AND 4),
+      driver TEXT NOT NULL, place TEXT NOT NULL, note TEXT NOT NULL DEFAULT '',
+      owner_device TEXT NOT NULL, created_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS series_skips (series_id TEXT NOT NULL, date TEXT NOT NULL, PRIMARY KEY (series_id, date));
+  `);
+  const tripCols = (await all("PRAGMA table_info(trips)")).map(c => c.name);
+  if (!tripCols.includes("series_id")) await q("ALTER TABLE trips ADD COLUMN series_id TEXT");
+  await q("CREATE UNIQUE INDEX IF NOT EXISTS trips_series_date ON trips(series_id, date) WHERE series_id IS NOT NULL");
 
   // Claves de los avisos: variables de entorno si existen; si no, se generan una vez y se guardan en la base de datos.
   let keys;
@@ -162,6 +177,7 @@ async function cleanup() {
     { sql: "DELETE FROM riders WHERE trip_id IN (SELECT id FROM trips WHERE date < ?)", args: [today] },
     { sql: "DELETE FROM trips WHERE date < ?", args: [today] },
     { sql: "DELETE FROM requests WHERE date < ?", args: [today] },
+    { sql: "DELETE FROM series_skips WHERE date < ?", args: [today] },
   ], "write");
 }
 
@@ -234,12 +250,53 @@ const auth = wrap(async (req, res, next) => {
 
 const clean = (v, max) => String(v ?? "").replace(/[\u0000-\u001f\u007f]/g, " ").trim().slice(0, max);
 
+// ---------- Viajes fijos ----------
+// Cada viaje fijo genera sus viajes de los próximos días al consultar la lista (sin tareas programadas).
+const SERIES_DAYS_AHEAD = 6; // hoy + 6 días
+const WEEK = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"];
+const weekday = date => { const [y, m, d] = date.split("-").map(Number); return ((new Date(Date.UTC(y, m - 1, d)).getUTCDay() + 6) % 7) + 1; }; // 1 = lunes
+const addDays = (date, n) => { const [y, m, d] = date.split("-").map(Number); return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10); };
+function daysText(days) {
+  const ds = [...days].map(Number).sort();
+  const k = ds.join("");
+  if (k === "1234567") return "todos los días";
+  if (k === "12345") return "de lunes a viernes";
+  if (k === "67") return "los fines de semana";
+  const names = ds.map(d => WEEK[d - 1]);
+  return "los " + (names.length === 1 ? names[0] : names.slice(0, -1).join(", ") + " y " + names.at(-1));
+}
+let lastMaterialize = 0;
+async function materializeSeries(force = false) {
+  if (!force && Date.now() - lastMaterialize < 60_000) return;
+  lastMaterialize = Date.now();
+  const list = await all("SELECT * FROM series");
+  if (!list.length) return;
+  const today = nowParts().date;
+  const skips = new Set((await all("SELECT series_id, date FROM series_skips WHERE date >= ?", today)).map(r => r.series_id + "|" + r.date));
+  const stmts = [];
+  for (const s of list) {
+    for (let i = 0; i <= SERIES_DAYS_AHEAD; i++) {
+      const date = addDays(today, i);
+      if (!s.days.includes(String(weekday(date)))) continue;
+      if (skips.has(s.id + "|" + date) || isPast(date, s.time, 0)) continue;
+      stmts.push({
+        sql: `INSERT OR IGNORE INTO trips (id, dir, date, time, seats, driver, place, note, owner_device, created_at, series_id)
+              VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+        args: [newId(), s.dir, date, s.time, s.seats, s.driver, s.place, s.note, s.owner_device, Date.now(), s.id],
+      });
+    }
+  }
+  if (stmts.length) await db.batch(stmts, "write");
+}
+
 app.get("/api/config", (req, res) => {
   res.json({ pushEnabled: push.enabled, vapidPublicKey: push.publicKey, today: nowParts().date });
 });
 
 app.get("/api/trips", auth, wrap(async (req, res) => {
   await cleanup();
+  await materializeSeries();
+  const seriesMap = new Map((await all("SELECT id, days FROM series")).map(s => [s.id, s.days]));
   const trips = (await all("SELECT * FROM trips WHERE date >= ? ORDER BY date, time", nowParts().date))
     .filter(t => !isPast(t.date, t.time));
   const riders = trips.length
@@ -259,6 +316,7 @@ app.get("/api/trips", auth, wrap(async (req, res) => {
       return {
         id: t.id, dir: t.dir, date: t.date, time: t.time, seats: Number(t.seats),
         driver: t.driver, place: t.place, note: t.note,
+        series: t.series_id && seriesMap.has(t.series_id) ? { id: t.series_id, text: daysText(seriesMap.get(t.series_id)) } : null,
         mine: t.owner_device === req.device,
         joined: Boolean(mineR),
         myPlaces: mineR ? Number(mineR.places) : 0,
@@ -323,6 +381,55 @@ app.post("/api/trips", rateLimit, auth, wrap(async (req, res) => {
   res.status(201).json({ id: trip.id, attached });
 }));
 
+app.post("/api/series", rateLimit, auth, wrap(async (req, res) => {
+  const b = req.body || {};
+  const dir = b.dir === "vuelta" ? "vuelta" : b.dir === "ida" ? "ida" : null;
+  const time = /^([01]\d|2[0-3]):[0-5]\d$/.test(b.time) ? b.time : null;
+  const seats = Number(b.seats);
+  const driver = clean(b.driver, 40);
+  const days = [...new Set(Array.isArray(b.days) ? b.days.map(Number).filter(d => Number.isInteger(d) && d >= 1 && d <= 7) : [])].sort().join("");
+  if (!dir || !time || !driver || !days || !(Number.isInteger(seats) && seats >= 1 && seats <= 4)) {
+    return res.status(400).json({ error: "Revisa sentido, días de la semana, hora, plazas y nombre." });
+  }
+  const count = Number((await one("SELECT COUNT(*) AS n FROM series WHERE owner_device = ?", req.device)).n);
+  if (count >= 5) return res.status(429).json({ error: "Ya tienes 5 viajes fijos. Cancela alguno antes de crear otro." });
+  const s = { id: newId(), dir, days, time, seats, driver, place: clean(b.place, 80) || DEFAULT_PLACE[dir], note: clean(b.note, 200) };
+  await q("INSERT INTO series (id, dir, days, time, seats, driver, place, note, owner_device, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+    s.id, dir, days, time, seats, driver, s.place, s.note, req.device, Date.now());
+  await materializeSeries(true);
+  // Un solo aviso para todo el viaje fijo (no uno por día).
+  const col = dir === "ida" ? "notify_ida" : "notify_vuelta";
+  await safely((async () => sendTo(await all(`SELECT endpoint, keys_json FROM subscriptions WHERE ${col} = 1 AND device_id != ?`, req.device), {
+    title: `Viaje fijo ${DIR_TEXT[dir]} ${daysText(days)} a las ${time}`,
+    body: `${driver} tiene ${plazas(seats)} cada día. Recogida: ${s.place}. Apúntate al día que lo necesites.`,
+    tag: `series-${s.id}`, url: `/?dir=${dir}`,
+  }))());
+  res.status(201).json({ id: s.id });
+}));
+
+// Cancelar un viaje fijo entero: se borran sus viajes desde hoy y se avisa a los apuntados.
+app.delete("/api/series/:id", rateLimit, auth, wrap(async (req, res) => {
+  const s = await one("SELECT * FROM series WHERE id = ?", req.params.id);
+  if (!s) return res.status(404).json({ error: "Ese viaje fijo ya no existe." });
+  if (s.owner_device !== req.device) return res.status(403).json({ error: "Solo quien lo creó puede cancelarlo." });
+  const today = nowParts().date;
+  const trips = await all("SELECT id, date, time FROM trips WHERE series_id = ? AND date >= ?", s.id, today);
+  const riders = trips.length
+    ? await all(`SELECT DISTINCT device_id FROM riders WHERE trip_id IN (${trips.map(() => "?").join(",")})`, ...trips.map(t => t.id))
+    : [];
+  const stmts = [{ sql: "DELETE FROM series WHERE id = ?", args: [s.id] }, { sql: "DELETE FROM series_skips WHERE series_id = ?", args: [s.id] }];
+  for (const t of trips) {
+    stmts.push({ sql: "DELETE FROM riders WHERE trip_id = ?", args: [t.id] }, { sql: "DELETE FROM trips WHERE id = ?", args: [t.id] });
+  }
+  await db.batch(stmts, "write");
+  await safely(Promise.all(riders.map(r => notifyDevice(r.device_id, {
+    title: "Viaje fijo cancelado",
+    body: `${s.driver} ya no hace el viaje ${DIR_TEXT[s.dir]} ${daysText(s.days)} a las ${s.time}. Tus reservas se han anulado.`,
+    tag: `series-${s.id}`, url: `/?dir=${s.dir}`,
+  }))));
+  res.json({ ok: true, cancelled: trips.length });
+}));
+
 app.delete("/api/trips/:id", rateLimit, auth, wrap(async (req, res) => {
   const t = await one("SELECT * FROM trips WHERE id = ?", req.params.id);
   if (!t) return res.status(404).json({ error: "Ese viaje ya no existe." });
@@ -331,6 +438,7 @@ app.delete("/api/trips/:id", rateLimit, auth, wrap(async (req, res) => {
   await db.batch([
     { sql: "DELETE FROM riders WHERE trip_id = ?", args: [t.id] },
     { sql: "DELETE FROM trips WHERE id = ?", args: [t.id] },
+    ...(t.series_id ? [{ sql: "INSERT OR IGNORE INTO series_skips (series_id, date) VALUES (?, ?)", args: [t.series_id, t.date] }] : []),
   ], "write");
   await safely(Promise.all(riders.map(r => notifyDevice(r.device_id, {
     title: "Viaje cancelado",

@@ -84,18 +84,20 @@
       const taken = t.taken, free = Math.max(0, t.seats - taken);
       let seats = "";
       for (let i = 0; i < t.seats; i++) seats += `<span class="seat ${i < taken ? "taken" : ""}" aria-hidden="true"></span>`;
+      const fixedTag = t.series ? ` <span class="tag fixed">🔁 Fijo ${esc(t.series.text)}</span>` : "";
       const tag = t.mine ? `<span class="tag mine">Tu viaje</span>`
         : free ? `<span class="tag">${free} ${free === 1 ? "plaza libre" : "plazas libres"}</span>`
         : `<span class="tag full">Completo</span>`;
       let act;
-      if (t.mine) act = `<span class="hint">Es tu coche: los vecinos verán aquí el botón «Me apunto».</span><button class="btn warn" data-del="${esc(t.id)}">Cancelar mi viaje</button>`;
+      if (t.mine && t.series) act = `<span class="hint">Es tu coche: los vecinos verán aquí el botón «Me apunto».</span><button class="btn warn" data-del="${esc(t.id)}">Cancelar este día</button><button class="btn warn" data-delseries="${esc(t.series.id)}">Cancelar viaje fijo</button>`;
+      else if (t.mine) act = `<span class="hint">Es tu coche: los vecinos verán aquí el botón «Me apunto».</span><button class="btn warn" data-del="${esc(t.id)}">Cancelar mi viaje</button>`;
       else if (t.joined) act = `<span class="hint">Has reservado ${t.myPlaces === 1 ? "1 plaza" : t.myPlaces + " plazas"}.</span><button class="btn ghost" data-leave="${esc(t.id)}">Ya no voy</button>`;
       else act = `<button class="btn go" data-join="${esc(t.id)}" ${free ? "" : "disabled"}>Me apunto</button>`;
       html += `<article class="trip">
         <div class="time cond">${esc(t.time)}</div>
         <div class="who">Conduce ${esc(t.driver)}</div>
         <div class="where">Recogida: <strong>${esc(t.place || PLACES[t.dir])}</strong></div>
-        <div class="seats">${seats} ${tag}</div>
+        <div class="seats">${seats} ${tag}${fixedTag}</div>
         ${t.note ? `<p class="note">${esc(t.note)}</p>` : ""}
         ${taken ? `<div class="riders">Van: ${t.riders.map(r => esc(r.name) + (r.places > 1 ? ` (${r.places} plazas)` : "")).join(", ")}</div>` : ""}
         <div class="actions">${act}</div>
@@ -149,6 +151,11 @@
         updateJoinCost();
         $("#jName").value = store.get("fa_name");
         $("#joinDlg").showModal(); $("#jName").focus();
+      } else if (b.dataset.delseries) {
+        if (!confirm("¿Cancelar el viaje fijo de todos los días? Se anularán también las reservas y avisaremos a quienes se hayan apuntado.")) return;
+        b.disabled = true;
+        await api("DELETE", `/api/series/${encodeURIComponent(b.dataset.delseries)}`);
+        toast("Viaje fijo cancelado"); await load();
       } else if (b.dataset.take) {
         const r = requests.find(x => x.id === b.dataset.take);
         if (r) openOffer(r);
@@ -207,8 +214,18 @@
     if (r) $("#fFor").textContent = `Vas a llevar a ${r.name} (${r.places === 1 ? "1 plaza" : r.places + " plazas"}), que quedará apuntada automáticamente. Puedes ajustar la hora y ofrecer más plazas para otros vecinos.`;
     $("#fName").value = store.get("fa_name"); $("#fNote").value = ""; $("#fStatus").textContent = "";
     $("#save").textContent = r ? "Publicar y llevarle" : "Publicar viaje";
+    $("#fRepeatBox").hidden = Boolean(r);
+    $("#fRepeat").checked = false; syncRepeat();
     dlg.showModal();
   }
+  function syncRepeat() {
+    const on = $("#fRepeat").checked;
+    $("#fDaysBox").hidden = !on;
+    $("#fDateBox").hidden = on;
+    $("#fDate").required = !on;
+    if (!forRequest) $("#save").textContent = on ? "Guardar viaje fijo" : "Publicar viaje";
+  }
+  $("#fRepeat").addEventListener("change", syncRepeat);
   $("#offer").addEventListener("click", () => openOffer());
   $("#cancel").addEventListener("click", () => dlg.close());
   $("#form").addEventListener("submit", async e => {
@@ -220,13 +237,21 @@
       place: $("#fPlace").value.trim(), note: $("#fNote").value.trim(),
       fromRequest: forRequest ? forRequest.id : undefined,
     };
-    if (!data.date || !data.time || !data.driver) { st.textContent = "Rellena día, hora y nombre."; st.className = "status err"; return; }
+    const fixed = $("#fRepeat").checked && !forRequest;
+    const days = [...document.querySelectorAll("#fDaysBox input:checked")].map(i => Number(i.value));
+    if (fixed && !days.length) { st.textContent = "Elige al menos un día de la semana."; st.className = "status err"; return; }
+    if ((!fixed && !data.date) || !data.time || !data.driver) { st.textContent = "Rellena día, hora y nombre."; st.className = "status err"; return; }
     store.set("fa_name", data.driver);
     $("#save").disabled = true; st.textContent = "Publicando…";
     try {
-      await api("POST", "/api/trips", data);
+      if (fixed) {
+        const { date, fromRequest, ...rest } = data;
+        await api("POST", "/api/series", { ...rest, days });
+      } else {
+        await api("POST", "/api/trips", data);
+      }
       dlg.close(); dir = data.dir; userPicked = true;
-      toast(forRequest ? `Viaje publicado. Hemos avisado a ${forRequest.name}.` : "Viaje publicado. Avisaremos a los vecinos.");
+      toast(forRequest ? `Viaje publicado. Hemos avisado a ${forRequest.name}.` : fixed ? "Viaje fijo guardado. Avisaremos a los vecinos." : "Viaje publicado. Avisaremos a los vecinos.");
       forRequest = null;
       await load();
     } catch (err) { st.textContent = err.message; st.className = "status err"; }

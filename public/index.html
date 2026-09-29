@@ -112,8 +112,23 @@
       <option value="ida">De La Felipa a Albacete</option>
       <option value="vuelta">De Albacete a La Felipa</option>
     </select>
+    <div id="fRepeatBox">
+      <label class="check"><input type="checkbox" id="fRepeat"> Es un viaje fijo (se repite cada semana)</label>
+      <div id="fDaysBox" hidden>
+        <div class="days" role="group" aria-label="Días de la semana">
+          <label><input type="checkbox" value="1" checked><span>L</span></label>
+          <label><input type="checkbox" value="2" checked><span>M</span></label>
+          <label><input type="checkbox" value="3" checked><span>X</span></label>
+          <label><input type="checkbox" value="4" checked><span>J</span></label>
+          <label><input type="checkbox" value="5" checked><span>V</span></label>
+          <label><input type="checkbox" value="6"><span>S</span></label>
+          <label><input type="checkbox" value="7"><span>D</span></label>
+        </div>
+        <p class="hint">Los viajes aparecerán solos cada semana, hasta que canceles el viaje fijo. Podrás cancelar también un día suelto.</p>
+      </div>
+    </div>
     <div class="row">
-      <div><label for="fDate">Día</label><input id="fDate" type="date" required></div>
+      <div id="fDateBox"><label for="fDate">Día</label><input id="fDate" type="date" required></div>
       <div><label for="fTime">Hora de salida</label><input id="fTime" type="time" required></div>
     </div>
     <div class="row">

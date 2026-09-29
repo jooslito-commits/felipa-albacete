@@ -116,3 +116,12 @@ input,select,textarea{width:100%;padding:10px 12px;border:2px solid var(--line);
 .sign .route{margin:4px 0 0;font:600 20px/1.1 "Barlow Condensed","Arial Narrow",sans-serif;opacity:1}
 .sign .route span[aria-hidden]{color:var(--wheat);margin:0 .2em}
 .sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.check{display:flex;align-items:center;gap:10px;font-weight:600;margin:14px 0 4px}
+.check input{width:20px;height:20px}
+.days{display:flex;gap:6px;flex-wrap:wrap;margin:6px 0}
+.days label{margin:0}
+.days input{position:absolute;opacity:0;width:1px;height:1px}
+.days span{display:grid;place-items:center;width:40px;height:40px;border-radius:50%;border:2px solid var(--line);font-weight:600;cursor:pointer}
+.days input:checked + span{background:var(--sign);border-color:var(--sign);color:#fff}
+.days input:focus-visible + span{outline:3px solid var(--wheat);outline-offset:2px}
+.tag.fixed{background:var(--bg);color:var(--sign);border:1px solid var(--line)}

@@ -127,3 +127,37 @@ test("busco viaje y «yo te llevo»", async () => {
   assert.equal((await call("DELETE", `/api/requests/${r2.body.id}`, pasajera)).status, 200);
   assert.equal((await call("POST", "/api/requests", pasajera, { dir: "vuelta", date: "2020-01-01", time: "14:00", name: "Lola" })).status, 400);
 });
+
+test("viaje fijo: genera los días, se cancela un día o entero", async () => {
+  const jose = dev("t"), ana = dev("u");
+  const s = await call("POST", "/api/series", jose, { dir: "ida", days: [1, 2, 3, 4, 5, 6, 7], time: "23:58", seats: 3, driver: "Jose" });
+  assert.equal(s.status, 201);
+  let l = await call("GET", "/api/trips", ana);
+  let mine = l.body.trips.filter(t => t.series?.id === s.body.id);
+  assert.equal(mine.length, 7, "hoy y los 6 días siguientes");
+  assert.equal(mine[0].series.text, "todos los días");
+
+  // Cancelar un día suelto: no vuelve a aparecer aunque se regenere.
+  const dia = mine[2];
+  assert.equal((await call("DELETE", `/api/trips/${dia.id}`, jose)).status, 200);
+  await call("POST", "/api/series", jose, { dir: "vuelta", days: [1], time: "18:00", seats: 2, driver: "Jose" }); // fuerza regenerar
+  l = await call("GET", "/api/trips", ana);
+  mine = l.body.trips.filter(t => t.series?.id === s.body.id);
+  assert.equal(mine.length, 6);
+  assert.ok(!mine.some(t => t.date === dia.date), "el día cancelado no se regenera");
+
+  // Solo lunes
+  const lunes = l.body.trips.filter(t => t.dir === "vuelta" && t.series);
+  assert.ok(lunes.length >= 1 && lunes.every(t => new Date(t.date + "T12:00:00Z").getUTCDay() === 1));
+  assert.equal(lunes[0].series.text, "los lunes");
+
+  // Apuntarse a un día y cancelar el viaje fijo entero
+  await call("POST", `/api/trips/${mine[1].id}/join`, ana, { name: "Ana", places: 1 });
+  assert.equal((await call("DELETE", `/api/series/${s.body.id}`, ana)).status, 403);
+  const del = await call("DELETE", `/api/series/${s.body.id}`, jose);
+  assert.equal(del.status, 200); assert.equal(del.body.cancelled, 6);
+  l = await call("GET", "/api/trips", ana);
+  assert.equal(l.body.trips.filter(t => t.series?.id === s.body.id).length, 0);
+
+  assert.equal((await call("POST", "/api/series", jose, { dir: "ida", days: [], time: "08:00", seats: 3, driver: "Jose" })).status, 400);
+});
